@@ -3,9 +3,9 @@
 /outputs
 /train_images
 /.idea
-src/__pycache__/
-src/secrets.py
-src/scratch_pad.py
+original/__pycache__/
+original/secrets.py
+original/scratch_pad.py
 # /stock_history
 
 
@@ -14,7 +14,7 @@ src/scratch_pad.py
 # etc...
 
 # ...even if they are in subdirectories
-# !/src
+# !/original
 
 # if the files to be tracked are in subdirectories
 # !*/a/b/file1.txt
