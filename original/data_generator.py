@@ -8,13 +8,7 @@
 #     http://www.apache.org/licenses/LICENSE-2.0
 #
 
-import os
-import re
 from operator import itemgetter
-
-import pandas as pd
-import pickle
-import numpy as np
 from sklearn.feature_selection import SelectKBest, f_classif, mutual_info_classif
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler, OneHotEncoder

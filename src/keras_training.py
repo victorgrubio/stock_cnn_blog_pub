@@ -19,6 +19,9 @@ from tensorflow.python.keras.layers import Conv2D, MaxPool2D, Dropout, Flatten, 
 from tensorflow.python.keras.models import load_model
 from tensorflow.python.keras.utils.vis_utils import plot_model
 
+from src.rolling_training import OUTPUT_PATH
+from loguru import logger
+
 
 def get_sample_weights(y):
     """
@@ -32,8 +35,8 @@ def get_sample_weights(y):
     y = y.astype(int)  # compute_class_weight needs int labels
     class_weights = compute_class_weight('balanced', np.unique(y), y)
 
-    print("real class weights are {}".format(class_weights), np.unique(y))
-    print("value_counts", np.unique(y, return_counts=True))
+    logger.info("real class weights are {}".format(class_weights), np.unique(y))
+    logger.info("value_counts", np.unique(y, return_counts=True))
     sample_weights = y.copy().astype(float)
     for i in np.unique(y):
         sample_weights[sample_weights == i] = class_weights[i]  # if i == 2 else 0.8 * class_weights[i]
@@ -45,7 +48,7 @@ def get_sample_weights(y):
 def reshape_as_image(x, img_width, img_height):
     x_temp = np.zeros((len(x), img_height, img_width))
     for i in range(x.shape[0]):
-        # print(type(x), type(x_temp), x.shape)
+        # logger.info(type(x), type(x_temp), x.shape)
         x_temp[i] = np.reshape(x[i], (img_height, img_width))
 
     return x_temp
@@ -63,7 +66,7 @@ def f1_weighted(y_true, y_pred):
     class_counts = tf.constant([0, 0, 0])
 
     def get_precision(i, conf_mat):
-        print("prec check", conf_mat, conf_mat[i, i], tf.reduce_sum(conf_mat[:, i]))
+        logger.info("prec check", conf_mat, conf_mat[i, i], tf.reduce_sum(conf_mat[:, i]))
         precision[i].assign(conf_mat[i, i] / tf.reduce_sum(conf_mat[:, i]))
         recall[i].assign(conf_mat[i, i] / tf.reduce_sum(conf_mat[i, :]))
         tf.add(i, 1)
@@ -117,7 +120,7 @@ def f1_metric(y_true, y_pred):
     # y_true_class = tf.math.argmax(y_true, axis=1, output_type=tf.dtypes.int32)
     # y_pred_class = tf.math.argmax(y_pred, axis=1, output_type=tf.dtypes.int32)
     # conf_mat = tf.math.confusion_matrix(y_true_class, y_pred_class)
-    # tf.Print(conf_mat, [conf_mat], "confusion_matrix")
+    # tf.logger.info(conf_mat, [conf_mat], "confusion_matrix")
 
     return 2 * ((precision * recall) / (precision + recall + K.epsilon()))
 
@@ -125,7 +128,7 @@ def f1_metric(y_true, y_pred):
 def create_model_cnn(params):
     model = Sequential()
 
-    print("Training with params {}".format(params))
+    logger.info("Training with params {}".format(params))
 
     conv2d_layer1 = Conv2D(params["conv2d_layers"]["conv2d_filters_1"],
                            params["conv2d_layers"]["conv2d_kernel_size_1"],
@@ -172,10 +175,9 @@ def create_model_cnn(params):
         optimizer = tf.optimizers.SGD(lr=params["lr"], decay=1e-6, momentum=0.9, nesterov=True)
     elif params["optimizer"] == 'adam':
         optimizer = optimizers.Adam(learning_rate=params["lr"], beta_1=0.9, beta_2=0.999, amsgrad=False)
-
     model.compile(loss='categorical_crossentropy', optimizer=optimizer, metrics=['accuracy', f1_metric])
-
     return model
+
 
 def f1_custom(y_true, y_pred):
     y_t = np.argmax(y_true, axis=1)
@@ -184,13 +186,35 @@ def f1_custom(y_true, y_pred):
 
 
 def check_baseline(pred, y_test):
-    print("size of test set", len(y_test))
+    logger.info("size of test set", len(y_test))
     e = np.equal(pred, y_test)
-    print("TP class counts", np.unique(y_test[e], return_counts=True))
-    print("True class counts", np.unique(y_test, return_counts=True))
-    print("Pred class counts", np.unique(pred, return_counts=True))
+    logger.info("TP class counts", np.unique(y_test[e], return_counts=True))
+    logger.info("True class counts", np.unique(y_test, return_counts=True))
+    logger.info("Pred class counts", np.unique(pred, return_counts=True))
     holds = np.unique(y_test, return_counts=True)[1][2]  # number 'hold' predictions
-    print("baseline acc:", (holds/len(y_test)*100))
+    logger.info("baseline acc:", (holds/len(y_test)*100))
+
+
+def plot_history(history, count):
+    plt.figure()
+    plt.plot(history.history['loss'])
+    plt.plot(history.history['val_loss'])
+    plt.plot(history.history['accuracy'])
+    plt.plot(history.history['val_accuracy'])
+    plt.title('Model Metrics')
+    plt.ylabel('Loss')
+    plt.xlabel('Epoch')
+    plt.legend(['train_loss', 'val_loss', 'train_acc', 'val_acc', 'f1', 'val_f1'], loc='upper left')
+    plt.savefig(os.path.join(OUTPUT_PATH, 'plt_{}'.format(count)))
+
+
+def check_baseline(pred, y_test):
+    e = np.equal(pred, y_test)
+    logger.info("TP class counts", np.unique(y_test[e], return_counts=True))
+    logger.info("True class counts", np.unique(y_test, return_counts=True))
+    logger.info("Pred class counts", np.unique(pred, return_counts=True))
+    holds = np.unique(y_test, return_counts=True)[1][2]  # number 'hold' predictions
+    logger.info("baseline acc:", str((holds / len(y_test) * 100)))
 
 
 if __name__ == "__main__":
@@ -202,11 +226,11 @@ if __name__ == "__main__":
     df['labels'] = df['labels'].astype(np.int8)
     if 'dividend_amount' in df.columns:
         df.drop(columns=['dividend_amount', 'split_coefficient'], inplace=True)
-    print(df.head())
+    logger.info(df.head())
 
 
     list_features = list(df.loc[:, 'open':'eom_26'].columns)
-    print('Total number of features', len(list_features))
+    logger.info('Total number of features', len(list_features))
     x_train, x_test, y_train, y_test = train_test_split(df.loc[:, 'open':'eom_26'].values, df['labels'].values,
                                                         train_size=0.8,
                                                         test_size=0.2, random_state=2, shuffle=True,
@@ -214,14 +238,14 @@ if __name__ == "__main__":
 
     # smote = RandomOverSampler(random_state=42, sampling_strategy='not majority')
     # x_train, y_train = smote.fit_resample(x_train, y_train)
-    # print('Resampled dataset shape %s' % Counter(y_train))
+    # logger.info('Resampled dataset shape %s' % Counter(y_train))
 
     if 0.7 * x_train.shape[0] < 2500:
         train_split = 0.8
     else:
         train_split = 0.7
     # train_split = 0.7
-    print('train_split =', train_split)
+    logger.info('train_split =', train_split)
     x_train, x_cv, y_train, y_cv = train_test_split(x_train, y_train, train_size=train_split, test_size=1 - train_split,
                                                     random_state=2, shuffle=True, stratify=y_train)
     mm_scaler = MinMaxScaler(feature_range=(0, 1))  # or StandardScaler?
@@ -230,7 +254,7 @@ if __name__ == "__main__":
     x_test = mm_scaler.transform(x_test)
 
     x_main = x_train.copy()
-    print("Shape of x, y train/cv/test {} {} {} {} {} {}".format(x_train.shape, y_train.shape, x_cv.shape, y_cv.shape,
+    logger.info("Shape of x, y train/cv/test {} {} {} {} {} {}".format(x_train.shape, y_train.shape, x_cv.shape, y_cv.shape,
                                                                  x_test.shape, y_test.shape))
 
     num_features = 225  # should be a perfect square
@@ -251,9 +275,9 @@ if __name__ == "__main__":
             select_k_best.fit(x_main, y_train)
 
         selected_features_anova = itemgetter(*select_k_best.get_support(indices=True))(list_features)
-        print(selected_features_anova)
-        print(select_k_best.get_support(indices=True))
-        print("****************************************")
+        logger.info(selected_features_anova)
+        logger.info(select_k_best.get_support(indices=True))
+        logger.info("****************************************")
 
     if selection_method == 'mutual_info' or selection_method == 'all':
         select_k_best = SelectKBest(mutual_info_classif, k=topk)
@@ -265,12 +289,12 @@ if __name__ == "__main__":
             select_k_best.fit(x_main, y_train)
 
         selected_features_mic = itemgetter(*select_k_best.get_support(indices=True))(list_features)
-        print(len(selected_features_mic), selected_features_mic)
-        print(select_k_best.get_support(indices=True))
+        logger.info(len(selected_features_mic), selected_features_mic)
+        logger.info(select_k_best.get_support(indices=True))
     # %%
     if selection_method == 'all':
         common = list(set(selected_features_anova).intersection(selected_features_mic))
-        print("common selected featues", len(common), common)
+        logger.info("common selected featues", len(common), common)
         if len(common) < num_features:
             raise Exception(
                 'number of common features found {} < {} required features. Increase "topk variable"'.format(
@@ -279,30 +303,30 @@ if __name__ == "__main__":
         for c in common:
             feat_idx.append(list_features.index(c))
         feat_idx = sorted(feat_idx[0:225])
-        print(feat_idx)
+        logger.info(feat_idx)
     # %%
     if selection_method == 'all':
         x_train = x_train[:, feat_idx]
         x_cv = x_cv[:, feat_idx]
         x_test = x_test[:, feat_idx]
 
-    print("Shape of x, y train/cv/test {} {} {} {} {} {}".format(x_train.shape,
+    logger.info("Shape of x, y train/cv/test {} {} {} {} {} {}".format(x_train.shape,
                                                                  y_train.shape, x_cv.shape, y_cv.shape, x_test.shape,
                                                                  y_test.shape))
     # %%
     _labels, _counts = np.unique(y_train, return_counts=True)
-    print("percentage of class 0 = {}, class 1 = {}".format(_counts[0] / len(y_train) * 100,
+    logger.info("percentage of class 0 = {}, class 1 = {}".format(_counts[0] / len(y_train) * 100,
                                                             _counts[1] / len(y_train) * 100))
 
     sample_weights = get_sample_weights(y_train)
-    print("Test sample_weights")
+    logger.info("Test sample_weights")
     rand_idx = np.random.randint(0, 1000, 30)
-    print(y_train[rand_idx])
-    print(sample_weights[rand_idx])
+    logger.info(y_train[rand_idx])
+    logger.info(sample_weights[rand_idx])
     # %%
     one_hot_enc = OneHotEncoder(sparse=False, categories='auto')  # , categories='auto'
     y_train = one_hot_enc.fit_transform(y_train.reshape(-1, 1))
-    print("y_train", y_train.shape)
+    logger.info("y_train", y_train.shape)
     y_cv = one_hot_enc.transform(y_cv.reshape(-1, 1))
     y_test = one_hot_enc.transform(y_test.reshape(-1, 1))
     # %%
@@ -314,7 +338,7 @@ if __name__ == "__main__":
     x_train = np.stack((x_train,) * 3, axis=-1)
     x_test = np.stack((x_test,) * 3, axis=-1)
     x_cv = np.stack((x_cv,) * 3, axis=-1)
-    print("final shape of x, y train/test {} {} {} {}".format(x_train.shape, y_train.shape, x_test.shape, y_test.shape))
+    logger.info("final shape of x, y train/test {} {} {} {}".format(x_train.shape, y_train.shape, x_test.shape, y_test.shape))
 
     fig = plt.figure(figsize=(15, 15))
     columns = rows = 3
@@ -370,29 +394,29 @@ if __name__ == "__main__":
 
     model = load_model(best_model_path)
     test_res = model.evaluate(x_test, y_test, verbose=0)
-    print("keras evaluate=", test_res)
+    logger.info("keras evaluate=", test_res)
     pred = model.predict(x_test)
     pred_classes = np.argmax(pred, axis=1)
     y_test_classes = np.argmax(y_test, axis=1)
     check_baseline(pred_classes, y_test_classes)
     conf_mat = confusion_matrix(y_test_classes, pred_classes)
-    print(conf_mat)
+    logger.info(conf_mat)
     labels = [0, 1, 2]
 
     f1_weighted = f1_score(y_test_classes, pred_classes, labels=None,
                            average='weighted', sample_weight=None)
-    print("F1 score (weighted)", f1_weighted)
-    print("F1 score (macro)", f1_score(y_test_classes, pred_classes, labels=None,
+    logger.info("F1 score (weighted)", f1_weighted)
+    logger.info("F1 score (macro)", f1_score(y_test_classes, pred_classes, labels=None,
                                        average='macro', sample_weight=None))
-    print("F1 score (micro)", f1_score(y_test_classes, pred_classes, labels=None,
+    logger.info("F1 score (micro)", f1_score(y_test_classes, pred_classes, labels=None,
                                        average='micro',
                                        sample_weight=None))  # weighted and micro preferred in case of imbalance
 
     # https://scikit-learn.org/stable/modules/model_evaluation.html#cohen-s-kappa --> supports multiclass; ref: https://stats.stackexchange.com/questions/82162/cohens-kappa-in-plain-english
-    print("cohen's Kappa", cohen_kappa_score(y_test_classes, pred_classes))
+    logger.info("cohen's Kappa", cohen_kappa_score(y_test_classes, pred_classes))
 
     recall = []
     for i, row in enumerate(conf_mat):
         recall.append(np.round(row[i] / np.sum(row), 2))
-        print("Recall of class {} = {}".format(i, recall[i]))
-    print("Recall avg", sum(recall) / len(recall))
+        logger.info("Recall of class {} = {}".format(i, recall[i]))
+    logger.info("Recall avg", sum(recall) / len(recall))
