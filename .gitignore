@@ -1,5 +1,6 @@
 # Ignore everything
 # *
+/dataset
 /outputs
 /train_images
 /.idea

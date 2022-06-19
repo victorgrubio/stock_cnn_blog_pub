@@ -8,32 +8,24 @@
 #     http://www.apache.org/licenses/LICENSE-2.0
 #
 
-import os
-import re
 from operator import itemgetter
 
-import pandas as pd
-import pickle
-import numpy as np
+import yfinance as yf
+from loguru import logger
 from sklearn.feature_selection import SelectKBest, f_classif, mutual_info_classif
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler, OneHotEncoder
 from sklearn.utils import compute_class_weight
-from tqdm.auto import tqdm
-from logger import Logger
-from secrets import api_key
 from utils import *
 
 
 class DataGenerator:
     def __init__(self, company_code, data_path='./stock_history', output_path='./outputs', strategy_type='original',
-                 update=False, logger: Logger = None):
+                 update=False, logger: logger = None):
         self.company_code = company_code
         self.strategy_type = strategy_type
         self.data_path = data_path
         self.logger = logger
-        self.BASE_URL = "https://www.alphavantage.co/query?function=TIME_SERIES_DAILY_ADJUSTED" \
-                        "&outputsize=full&apikey=" + api_key + "&datatype=csv&symbol="  # api key from alpha vantage service
         self.output_path = output_path
         self.start_col = 'open'
         self.end_col = 'eom_26'
@@ -45,12 +37,12 @@ class DataGenerator:
         self.one_hot_enc.fit(self.df['labels'].values.reshape(-1, 1))
         self.batch_start_date = self.df.head(1).iloc[0]["timestamp"]
         self.test_duration_years = 1
-        self.logger.append_log("{} has data for {} to {}".format(data_path, self.batch_start_date,
+        self.logger.info("{} has data for {} to {}".format(data_path, self.batch_start_date,
                                                                  self.df.tail(1).iloc[0]['timestamp']))
 
     def log(self, text):
         if self.logger:
-            self.logger.append_log(text)
+            self.logger.info(text)
         else:
             print(text)
 
@@ -64,13 +56,13 @@ class DataGenerator:
 
         if not os.path.exists(path_to_company_data):
             self.log("Downloading " + self.company_code + " data")
-            download_save(self.BASE_URL + self.company_code, path_to_company_data, self.logger)
+            yf.download(self.company_code, path_to_company_data)
         else:
             self.log("Data for " + self.company_code + " ready to use")
 
     def calculate_technical_indicators(self, df, col_name, intervals):
-        # get_RSI(df, col_name, intervals)  # faster but non-smoothed RSI
-        get_RSI_smooth(df, col_name, intervals)  # momentum
+        get_RSI(df, col_name, intervals)  # faster but non-smoothed RSI
+        # get_RSI_smooth(df, col_name, intervals)  # momentum
         get_williamR(df, col_name, intervals)  # momentum
         get_mfi(df, intervals)  # momentum
         # get_MACD(df, col_name, intervals)  # momentum, ready to use +3
@@ -135,7 +127,7 @@ class DataGenerator:
                     if price > max_:
                         max_ = price
                         max_index = i
-
+                # TODO FIX
                 if max_index == window_middle:
                     labels[window_middle] = 0
                 elif min_index == window_middle:
@@ -257,7 +249,7 @@ class DataGenerator:
         prev_len = len(df)
         df.dropna(inplace=True)
         df.reset_index(drop=True, inplace=True)
-        self.logger.append_log("Dropped {0} nan rows before label calculation".format(prev_len - len(df)))
+        self.logger.info("Dropped {0} nan rows before label calculation".format(prev_len - len(df)))
 
         if 'labels' not in df.columns or self.update:
             if re.match(r"\d+_\d+_ma", self.strategy_type):
@@ -270,7 +262,7 @@ class DataGenerator:
             prev_len = len(df)
             df.dropna(inplace=True)
             df.reset_index(drop=True, inplace=True)
-            self.logger.append_log("Dropped {0} nan rows after label calculation".format(prev_len - len(df)))
+            self.logger.info("Dropped {0} nan rows after label calculation".format(prev_len - len(df)))
             df.drop(columns=['dividend_amount', 'split_coefficient'], inplace=True)
             df.to_csv(os.path.join(self.output_path, "df_" + self.company_code + ".csv"), index=False)
         else:
@@ -369,7 +361,7 @@ class DataGenerator:
                                                                            test_size=cross_val_split,
                                                                            random_state=2, shuffle=True,
                                                                            stratify=y_train)
-        self.logger.append_log("data generated: train duration={}-{}, test_duration={}-{}, size={}, {}, {}".format(
+        self.logger.info("data generated: train duration={}-{}, test_duration={}-{}, size={}, {}, {}".format(
             self.batch_start_date, train_end_date, test_start_date, test_end_date, x_train.shape, x_cv.shape,
             x_test.shape))
 

@@ -252,7 +252,7 @@ def get_williamR(df, col_name, intervals):
     # df_ss = sdf.retype(df)
     for i in tqdm(intervals):
         # df['wr_'+str(i)] = df_ss['wr_'+str(i)]
-        df["wr_" + str(i)] = WilliamsRIndicator(df['high'], df['low'], df['close'], i, fillna=True)
+        df["wr_" + str(i)] = williams_r(df['high'], df['low'], df['close'], i, fillna=True)
 
     print_time("Calculation of WilliamR Done", stime)
 
@@ -265,7 +265,9 @@ def get_mfi(df, intervals):
     stime = time.time()
     print("Calculating MFI")
     for i in tqdm(intervals):
-        df['mfi_' + str(i)] = money_flow_index(df['high'], df['low'], df['close'], df['volume'], n=i, fillna=True)
+        df['mfi_' + str(i)] = money_flow_index(
+            df['high'], df['low'], df['close'], df['volume'],
+            window=i, fillna=True)
 
     print_time("Calculation of MFI done", stime)
 

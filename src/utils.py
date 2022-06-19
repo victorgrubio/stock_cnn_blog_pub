@@ -13,16 +13,18 @@
 Utility functions
 """
 import re
-import time
-import numpy as np
 import urllib.request
 import shutil
 import os
+
+import pandas as pd
 from PIL import Image
+from loguru import logger
 from ta.momentum import *
 from ta.trend import *
 from ta.volatility import *
 from ta.volume import ease_of_movement, force_index, chaikin_money_flow, money_flow_index
+import pandas_ta as pd_ta
 from tqdm.auto import tqdm
 from stockstats import StockDataFrame as sdf
 from matplotlib import pyplot as plt
@@ -45,12 +47,12 @@ def get_readable_ctime():
 
 def download_save(url, path_to_save, logger=None):
     if logger:
-        logger.append_log("Starting download " + re.sub(r'apikey=[A-Za-z0-9]+&', 'apikey=my_api_key&', url))
+        logger.info("Starting download " + re.sub(r'apikey=[A-Za-z0-9]+&', 'apikey=my_api_key&', url))
     else:
         print("Starting download " + re.sub(r'apikey=[A-Za-z0-9]+&', 'apikey=my_api_key&', url))
     urllib.request.urlretrieve(url, path_to_save)
     if logger:
-        logger.append_log(path_to_save + " downloaded and saved")
+        logger.info(path_to_save + " downloaded and saved")
     else:
         print(path_to_save + " downloaded and saved")
 
@@ -115,10 +117,10 @@ def white_noise_check(tags_list, logger=None, *pd_series_args):
     if len(tags_list) != len(pd_series_args):
         raise Exception("Length of tags_list and series params different. Should be same.")
     for idx, s in enumerate(pd_series_args):
-        # logger.append_log("1st, 2nd element {}, {}".format(s.iloc[0], s.iloc[1]))
+        # logger.info("1st, 2nd element {}, {}".format(s.iloc[0], s.iloc[1]))
         m = s.mean()
         std = s.std()
-        logger.append_log("mean & std for {} is {}, {}".format(tags_list[idx], m, std))
+        logger.info("mean & std for {} is {}, {}".format(tags_list[idx], m, std))
 
 
 def plot(y, title, output_path, x=None):
@@ -160,14 +162,7 @@ def get_RSI(df, col_name, intervals):
     not used here.
     This calculates non-smoothed RSI
     """
-    df_ss = sdf.retype(df)
     for i in intervals:
-        df['rsi_' + str(i)] = df_ss['rsi_' + str(i)]
-
-        del df['close_-1_s']
-        del df['close_-1_d']
-        del df['rs_' + str(i)]
-
         df['rsi_' + str(intervals[0])] = rsi(df['close'], i, fillna=True)
     print("RSI with stockstats done")
 
@@ -231,6 +226,7 @@ def get_RSI_smooth(df, col_name, intervals):
         # df['rsi_'+str(period)+'_own_1'] = np.nan
         rolling_count = 0
         res = diff.rolling(period).apply(calculate_RSI, args=(period,), raw=False)
+        # TODO AVOID COPY WARNING
         df['rsi_' + str(period)][1:] = res
 
     # df.drop(['diff'], axis = 1, inplace=True)
@@ -251,8 +247,7 @@ def get_williamR(df, col_name, intervals):
     print("Calculating WilliamR")
     # df_ss = sdf.retype(df)
     for i in tqdm(intervals):
-        # df['wr_'+str(i)] = df_ss['wr_'+str(i)]
-        df["wr_" + str(i)] = WilliamsRIndicator(df['high'], df['low'], df['close'], i, fillna=True)
+        df["wr_" + str(i)] = williams_r(df['high'], df['low'], df['close'], i, fillna=True)
 
     print_time("Calculation of WilliamR Done", stime)
 
@@ -265,7 +260,7 @@ def get_mfi(df, intervals):
     stime = time.time()
     print("Calculating MFI")
     for i in tqdm(intervals):
-        df['mfi_' + str(i)] = money_flow_index(df['high'], df['low'], df['close'], df['volume'], n=i, fillna=True)
+        df['mfi_' + str(i)] = money_flow_index(df['high'], df['low'], df['close'], df['volume'], window=i, fillna=True)
 
     print_time("Calculation of MFI done", stime)
 
@@ -275,11 +270,11 @@ def get_SMA(df, col_name, intervals):
     Momentum indicator
     """
     stime = time.time()
-    print("Calculating SMA")
-    df_ss = sdf.retype(df)
+    logger.info("Calculating SMA")
+    tmp_df = pd.DataFrame()
     for i in tqdm(intervals):
-        df[col_name + '_sma_' + str(i)] = df_ss[col_name + '_' + str(i) + '_sma']
-        del df[col_name + '_' + str(i) + '_sma']
+        tmp_df[col_name + '_sma_' + str(i)] = df[col_name].rolling(i).mean()
+    df = pd.concat([df, tmp_df], axis=1)
 
     print_time("Calculation of SMA Done", stime)
 
@@ -291,10 +286,8 @@ def get_EMA(df, col_name, intervals):
     """
     stime = time.time()
     print("Calculating EMA")
-    df_ss = sdf.retype(df)
     for i in tqdm(intervals):
-        df['ema_' + str(i)] = df_ss[col_name + '_' + str(i) + '_ema']
-        del df[col_name + '_' + str(i) + '_ema']
+        df['ema_' + str(i)] = df[col_name].ewm(span=4, adjust=False).mean()
         # df["ema_"+str(intervals[0])+'_1'] = ema_indicator(df['close'], i, fillna=True)
 
     print_time("Calculation of EMA Done", stime)
@@ -387,7 +380,6 @@ def get_TRIX(df, col_name, intervals):
     """
     stime = time.time()
     print("Calculating TRIX")
-    df_ss = sdf.retype(df)
     for i in tqdm(intervals):
         # df['trix_'+str(i)] = df_ss['trix_'+str(i)+'_sma']
         df['trix_' + str(i)] = trix(df['close'], i, fillna=True)
@@ -409,7 +401,8 @@ def get_DMI(df, col_name, intervals):
         df['dmi_' + str(i)] = df_ss['adx_' + str(i) + '_ema']
 
     drop_columns = ['high_delta', 'um', 'low_delta', 'dm', 'pdm', 'pdm_14_ema', 'pdm_14',
-                    'close_-1_s', 'tr', 'tr_14_smma', 'atr_14']
+                    # 'close_-1_s', 'tr', 'tr_14_smma',
+                    'atr_14']
     # drop_columns = ['high_delta', 'um', 'low_delta', 'dm', 'pdm', 'pdm_14_ema',
     #                 'pdm_14', 'close_-1_s', 'tr', 'atr_14', 'pdi_14', 'pdi',
     #                 'mdm', 'mdm_14_ema', 'mdm_14', 'mdi_14', 'mdi', 'dx_14',
@@ -443,7 +436,7 @@ def get_BB_MAV(df, col_name, intervals):
     print("Calculating Bollinger Band MAV")
     df_ss = sdf.retype(df)
     for i in tqdm(intervals):
-        df['bb_' + str(i)] = bollinger_mavg(df['close'], n=i, fillna=True)
+        df['bb_' + str(i)] = bollinger_mavg(df['close'], window=i, fillna=True)
 
     print_time("Calculation of Bollinger Band MAV done", stime)
 
@@ -476,8 +469,10 @@ def get_CMO(df, col_name, intervals):
 
     diff = df[col_name].diff()[1:]  # skip na
     for period in tqdm(intervals):
+        # TODO VOID COPY WARNING
         df['cmo_' + str(period)] = np.nan
-        res = diff.rolling(period).apply(calculate_CMO, args=(period,), raw=False)
+        res = pd_ta.cmo(diff, period)
+        # res = diff.rolling(period).apply(ta.cmo, args=(period,), raw=False)
         df['cmo_' + str(period)][1:] = res
 
     print_time("Calculation of CMO Done", stime)
@@ -578,7 +573,7 @@ def get_DPO(df, col_name, intervals):
     stime = time.time()
     print("Calculating DPO")
     for i in tqdm(intervals):
-        df['dpo_' + str(i)] = dpo(df['close'], n=i)
+        df['dpo_' + str(i)] = dpo(df['close'], window=i)
 
     print_time("Calculation of DPO done", stime)
 
@@ -626,7 +621,9 @@ def get_EOM(df, col_name, intervals):
     stime = time.time()
     print("Calculating EOM")
     for i in tqdm(intervals):
-        df['eom_' + str(i)] = ease_of_movement(df['high'], df['low'], df['volume'], n=i, fillna=True)
+        df['eom_' + str(i)] = ease_of_movement(
+            df['high'], df['low'], df['volume'], window=i, fillna=True
+        )
 
     print_time("Calculation of EOM done", stime)
 

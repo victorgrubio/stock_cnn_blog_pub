@@ -19,7 +19,6 @@ from tensorflow.python.keras.layers import Conv2D, MaxPool2D, Dropout, Flatten, 
 from tensorflow.python.keras.models import load_model
 from tensorflow.python.keras.utils.vis_utils import plot_model
 
-from src.rolling_training import OUTPUT_PATH
 from loguru import logger
 
 
@@ -352,14 +351,21 @@ if __name__ == "__main__":
         plt.imshow(img)
     plt.show()
 
-    params = {'batch_size': 80,
-              'conv2d_layers': {'conv2d_do_1': 0.2, 'conv2d_filters_1': 32, 'conv2d_kernel_size_1': 3, 'conv2d_mp_1': 0,
-                                'conv2d_strides_1': 1, 'kernel_regularizer_1': 0.0, 'conv2d_do_2': 0.3,
-                                'conv2d_filters_2': 64, 'conv2d_kernel_size_2': 3, 'conv2d_mp_2': 2,
-                                'conv2d_strides_2': 1,
-                                'kernel_regularizer_2': 0.0, 'layers': 'two'},
-              'dense_layers': {'dense_do_1': 0.3, 'dense_nodes_1': 128, 'kernel_regularizer_1': 0.0, 'layers': 'one'},
-              'epochs': 3000, 'lr': 0.001, 'optimizer': 'adam'}
+    params = {
+        'batch_size': 80,
+        'conv2d_layers': {
+        'conv2d_do_1': 0.2, 'conv2d_filters_1': 32, 'conv2d_kernel_size_1': 3, 'conv2d_mp_1': 0,
+        'conv2d_strides_1': 1, 'kernel_regularizer_1': 0.0, 'conv2d_do_2': 0.3,
+        'conv2d_filters_2': 64, 'conv2d_kernel_size_2': 3, 'conv2d_mp_2': 2,
+        'conv2d_strides_2': 1,
+        'kernel_regularizer_2': 0.0, 'layers': 'two'
+        },
+        'dense_layers': {
+          'dense_do_1': 0.3, 'dense_nodes_1': 128,
+          'kernel_regularizer_1': 0.0, 'layers': 'one'
+        },
+        'epochs': 3000, 'lr': 0.001, 'optimizer': 'adam'
+    }
 
     model = create_model_cnn(params)
     plot_model(model, to_file='model.png', show_shapes=True, show_layer_names=False)
