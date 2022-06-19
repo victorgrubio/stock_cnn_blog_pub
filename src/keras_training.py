@@ -1,5 +1,6 @@
 import os
 from operator import itemgetter
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -10,13 +11,13 @@ from sklearn.preprocessing import MinMaxScaler, OneHotEncoder
 from sklearn.utils import compute_class_weight
 
 from tensorflow.python.keras.callbacks import EarlyStopping, ReduceLROnPlateau, ModelCheckpoint, CSVLogger
-from tensorflow.python.keras.models import load_model
-from tensorflow.python.keras.utils.vis_utils import plot_model
 
 from loguru import logger
+from tensorflow.python.keras.saving.save import load_model
 
 from src.config import OUTPUT_PATH, DATASET_PATH
-from src.model import create_model_cnn
+from src.metrics import f1_metric
+from src.model import create_model_cnn, show_model_status
 from src.plotting import plot_training_data, plot_model_history_results
 
 
@@ -51,57 +52,6 @@ def reshape_as_image(x, img_width, img_height):
         # logger.info(type(x), type(x_temp), x.shape)
         x_temp[i] = np.reshape(x[i], (img_height, img_width))
     return x_temp
-
-
-def check_baseline(pred, y_test):
-    logger.info("size of test set", len(y_test))
-    e = np.equal(pred, y_test)
-    logger.info("TP class counts", np.unique(y_test[e], return_counts=True))
-    logger.info("True class counts", np.unique(y_test, return_counts=True))
-    logger.info("Pred class counts", np.unique(pred, return_counts=True))
-    holds = np.unique(y_test, return_counts=True)[1][2]  # number 'hold' predictions
-    logger.info("baseline acc:", (holds/len(y_test)*100))
-
-
-def check_baseline(pred, y_test):
-    e = np.equal(pred, y_test)
-    logger.info("TP class counts", np.unique(y_test[e], return_counts=True))
-    logger.info("True class counts", np.unique(y_test, return_counts=True))
-    logger.info("Pred class counts", np.unique(pred, return_counts=True))
-    holds = np.unique(y_test, return_counts=True)[1][2]  # number 'hold' predictions
-    logger.info("baseline acc:", str((holds / len(y_test) * 100)))
-
-
-def show_model_status():
-    model = load_model(best_model_path)
-    test_res = model.evaluate(x_test, y_test, verbose=0)
-    logger.info("keras evaluate=", test_res)
-    pred = model.predict(x_test)
-    pred_classes = np.argmax(pred, axis=1)
-    y_test_classes = np.argmax(y_test, axis=1)
-    check_baseline(pred_classes, y_test_classes)
-    conf_mat = confusion_matrix(y_test_classes, pred_classes)
-    logger.info(conf_mat)
-    labels = [0, 1, 2]
-
-    f1_weighted = f1_score(y_test_classes, pred_classes, labels=None,
-                           average='weighted', sample_weight=None)
-    logger.info("F1 score (weighted)", f1_weighted)
-    logger.info("F1 score (macro)", f1_score(y_test_classes, pred_classes, labels=None,
-                                             average='macro', sample_weight=None))
-    logger.info("F1 score (micro)", f1_score(y_test_classes, pred_classes, labels=None,
-                                             average='micro',
-                                             sample_weight=None))  # weighted and micro preferred in case of imbalance
-
-    # https://scikit-learn.org/stable/modules/model_evaluation.html#cohen-s-kappa --> supports multiclass; ref: https://stats.stackexchange.com/questions/82162/cohens-kappa-in-plain-english
-    logger.info("cohen's Kappa", cohen_kappa_score(y_test_classes, pred_classes))
-
-    recall = []
-    for i, row in enumerate(conf_mat):
-        recall.append(np.round(row[i] / np.sum(row), 2))
-        logger.info("Recall of class {} = {}".format(i, recall[i]))
-    logger.info("Recall avg", sum(recall) / len(recall))
-
 
 def get_training_data():
     x_train, x_test, y_train, y_test = train_test_split(
@@ -157,9 +107,9 @@ def get_training_data():
         selected_features_anova = itemgetter(
             *select_k_best.get_support(indices=True)
         )(list_features)
-        logger.info(selected_features_anova)
-        logger.info(select_k_best.get_support(indices=True))
-        logger.info("****************************************")
+        # logger.info(selected_features_anova)
+        # logger.info(select_k_best.get_support(indices=True))
+        # logger.info("****************************************")
 
     if selection_method == 'mutual_info' or selection_method == 'all':
         select_k_best = SelectKBest(mutual_info_classif, k=topk)
@@ -226,7 +176,7 @@ def get_training_data():
             x_train.shape, y_train.shape, x_test.shape, y_test.shape
         ))
 
-    return x_train, y_train, x_test, y_test, x_cv, y_cv
+    return x_train, y_train, x_test, y_test, x_cv, y_cv, sample_weights
 
 
 if __name__ == "__main__":
@@ -242,9 +192,10 @@ if __name__ == "__main__":
 
     list_features = list(df.loc[:, 'open':'eom_26'].columns)
     logger.info('Total number of features', len(list_features))
-    x_train, y_train, x_test, y_test, x_cv, y_cv = get_training_data()
-    sample_weights = get_sample_weights(y_train)
+    x_train, y_train, x_test, y_test, x_cv, y_cv, sample_weights = get_training_data()
     plot_training_data(x_train, y_train)
+    # epochs = 3000
+    epochs = 10
     params = {
         'input_shape': (15, 15, 3),
         'batch_size': 80,
@@ -259,22 +210,25 @@ if __name__ == "__main__":
           'dense_do_1': 0.3, 'dense_nodes_1': 128,
           'kernel_regularizer_1': 0.0, 'layers': 'one'
         },
-        'epochs': 3000, 'lr': 0.001, 'optimizer': 'adam'
+        'epochs': epochs, 'lr': 0.001, 'optimizer': 'adam'
     }
     if params.get('input_shape', None) is None:
         params['input_shape'] = x_train[0].shape()
 
     model = create_model_cnn(params)
-    plot_model(model, to_file='model.png', show_shapes=True, show_layer_names=False)
+    # TODO FIX PLOTTING MODEL ISSUE
+    # plot_model( model, to_file='model.png', show_shapes=True, show_layer_names=True )
 
-    best_model_path = os.path.join('.', 'best_model_keras')
+    best_model_path = Path.cwd() / 'best_model_keras'
     es = EarlyStopping(monitor='val_loss', mode='min', verbose=1,
                        patience=100, min_delta=0.0001)
     csv_logger = CSVLogger(os.path.join(OUTPUT_PATH, 'log_training_batch.csv'), append=True)
     rlp = ReduceLROnPlateau(monitor='val_loss', factor=0.02, patience=20, verbose=1, mode='min',
                             min_delta=0.001, cooldown=1, min_lr=0.0001)
-    mcp = ModelCheckpoint(best_model_path, monitor='val_f1_metric', verbose=1,
-                          save_best_only=True, save_weights_only=False, mode='max', period=1)  # val_f1_metric
+    mcp = ModelCheckpoint(
+        best_model_path, monitor='val_f1_metric', verbose=1,
+        save_best_only=True, save_weights_only=False, mode='max', period=1
+    )  # val_f1_metric
 
     history = model.fit(
         x_train, y_train, epochs=params['epochs'], verbose=1,
@@ -285,4 +239,6 @@ if __name__ == "__main__":
         sample_weight=sample_weights
     )
     plot_model_history_results(history)
-    show_model_status(model)
+    trained_model = load_model(
+        best_model_path, custom_objects={'f1_metric':f1_metric})
+    show_model_status(trained_model, x_test, y_test, best_model_path)

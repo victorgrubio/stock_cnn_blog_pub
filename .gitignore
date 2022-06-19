@@ -20,3 +20,4 @@ original/scratch_pad.py
 # if the files to be tracked are in subdirectories
 # !*/a/b/file1.txt
 # !*/a/b/c/*
+/src/best_model_keras/

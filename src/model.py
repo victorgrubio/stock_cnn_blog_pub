@@ -1,8 +1,13 @@
-from tensorflow import optimizers
+import numpy as np
+from sklearn.metrics import confusion_matrix, f1_score, cohen_kappa_score
 from tensorflow.python.keras import Sequential, regularizers
 from tensorflow.python.keras.layers import Conv2D, MaxPool2D, Dropout, Flatten, Dense
 from loguru import logger
-import tensorflow as tf
+from tensorflow.python.keras.optimizer_v2.adam import Adam
+from tensorflow.python.keras.optimizer_v2.gradient_descent import SGD
+from tensorflow.python.keras.optimizer_v2.rmsprop import RMSprop
+
+from src.metrics import f1_metric
 
 
 def create_model_cnn(params):
@@ -48,11 +53,51 @@ def create_model_cnn(params):
 
     model.add(Dense(3, activation='softmax'))
 
+    optimizer = SGD(learning_rate=params["lr"], decay=1e-6, momentum=0.9, nesterov=True)
+
     if params["optimizer"] == 'rmsprop':
-        optimizer = optimizers.RMSprop(lr=params["lr"])
-    elif params["optimizer"] == 'sgd':
-        optimizer = tf.optimizers.SGD(lr=params["lr"], decay=1e-6, momentum=0.9, nesterov=True)
+        optimizer = RMSprop(learning_rate=params["lr"])
     elif params["optimizer"] == 'adam':
-        optimizer = optimizers.Adam(learning_rate=params["lr"], beta_1=0.9, beta_2=0.999, amsgrad=False)
+        optimizer = Adam(learning_rate=params["lr"], beta_1=0.9, beta_2=0.999, amsgrad=False)
     model.compile(loss='categorical_crossentropy', optimizer=optimizer, metrics=['accuracy', f1_metric])
     return model
+
+def show_model_status(model, x_test, y_test, best_model_path):
+    test_res = model.evaluate(x_test, y_test, verbose=0)
+    logger.info("keras evaluate=", test_res)
+    pred = model.predict(x_test)
+    pred_classes = np.argmax(pred, axis=1)
+    y_test_classes = np.argmax(y_test, axis=1)
+    check_baseline(pred_classes, y_test_classes)
+    conf_mat = confusion_matrix(y_test_classes, pred_classes)
+    logger.info(conf_mat)
+    labels = [0, 1, 2]
+
+    f1_weighted = f1_score(y_test_classes, pred_classes, labels=None,
+                           average='weighted', sample_weight=None)
+    logger.info("F1 score (weighted)", f1_weighted)
+    logger.info("F1 score (macro)", f1_score(y_test_classes, pred_classes, labels=None,
+                                             average='macro', sample_weight=None))
+    logger.info("F1 score (micro)", f1_score(y_test_classes, pred_classes, labels=None,
+                                             average='micro',
+                                             sample_weight=None))  # weighted and micro preferred in case of imbalance
+
+    # https://scikit-learn.org/stable/modules/model_evaluation.html#cohen-s-kappa --> supports multiclass; ref: https://stats.stackexchange.com/questions/82162/cohens-kappa-in-plain-english
+    logger.info("cohen's Kappa", cohen_kappa_score(y_test_classes, pred_classes))
+
+    recall = []
+    for i, row in enumerate(conf_mat):
+        recall.append(np.round(row[i] / np.sum(row), 2))
+        logger.info("Recall of class {} = {}".format(i, recall[i]))
+    logger.info("Recall avg", sum(recall) / len(recall))
+
+
+def check_baseline(pred, y_test):
+    logger.info("size of test set", len(y_test))
+    e = np.equal(pred, y_test)
+    logger.info("TP class counts", np.unique(y_test[e], return_counts=True))
+    logger.info("True class counts", np.unique(y_test, return_counts=True))
+    logger.info("Pred class counts", np.unique(pred, return_counts=True))
+    holds = np.unique(y_test, return_counts=True)[1][2]  # number 'hold' predictions
+    logger.info("baseline acc:", (holds/len(y_test)*100))
+

@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-def plot_training_data(x_train, y_train):
+def plot_training_data(x_train, y_train, show=False):
     fig = plt.figure(figsize=(15, 15))
     columns = rows = 3
     for i in range(1, columns * rows + 1):
@@ -13,7 +13,8 @@ def plot_training_data(x_train, y_train):
         plt.title('image_' + str(index) + '_class_' + str(np.argmax(y_train[index])), fontsize=10)
         plt.subplots_adjust(wspace=0.2, hspace=0.2)
         plt.imshow(img)
-    plt.show()
+    if show:
+        plt.show()
 
 
 def plot_model_history_results(history):
@@ -28,5 +29,3 @@ def plot_model_history_results(history):
     plt.xlabel('Epoch')
     plt.legend(['train_loss', 'val_loss', 'f1', 'val_f1'], loc='upper left')
     plt.show()
-
-
