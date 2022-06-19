@@ -113,7 +113,7 @@ class DataGenerator:
             if row_counter >= window_size - 1:
                 window_begin = row_counter - (window_size - 1)
                 window_end = row_counter
-                window_middle = (window_begin + window_end) / 2
+                window_middle = round((window_begin + window_end) / 2)
 
                 min_ = np.inf
                 min_index = -1
@@ -299,7 +299,6 @@ class DataGenerator:
         for c in common:
             feat_idx.append(list_features.index(c))
         feat_idx = sorted(feat_idx[0:225])
-        self.log(str(feat_idx))
         return feat_idx
 
     def df_by_date(self, start_date=None, years=5):
